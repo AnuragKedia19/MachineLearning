@@ -1,0 +1,209 @@
+---
+title: "R Notebook"
+output:
+  html_notebook: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+```{r}
+#clear all environment datasets and variables
+rm(list=ls(all=T))
+#Clear Ram for faster calculations
+gc()
+```
+
+
+```{r}
+library(readxl)
+cerealdata <- read.csv(file.choose(), header = TRUE)
+```
+
+
+```{r}
+#verify the structure of the data
+str(cerealdata)
+summary(cerealdata)
+sapply(cerealdata,function(x){sum(is.na(x))})
+# in the given data set, we can see few erros in data capturing.
+# Scale of data is not caputured from 1-5 from few respondants
+# this needs to be manually corrected. let's replace 6 with 5
+cerealdata[cerealdata==6]<-5
+summary(cerealdata)
+```
+
+```{r}
+cerealdata[,c(12,25)]<-6-cerealdata[,c(12,25)]
+summary(cerealdata)
+
+
+```
+
+
+```{r}
+# Test the sample size to determine whether to perform Factor Analysis or PCA and if the dimentionality reduction is a possibility at all(corelation adequacy). 
+#We perform the following tests to get the answers:
+# To Asertine the Sample size - Perform the KMO test of sampling adequacy.
+# To check possibility of dimentionality reduction - Perform the Bartlett Test of Sphericity
+
+library(psych)
+cereal_Matrix <- cor(cerealdata[,-1])
+cereal_Matrix <- round(cereal_Matrix, 2)
+```
+
+
+```{r}
+cerealKMO <- KMO(cerealdata[,-1])
+cerealKMO
+
+#KMO Test - The KMO test yields a degree of common variance meritorious. The overall MSA or KMO is 0.85 which implies our sample is large enough for factor analysis or PCA
+```
+
+
+```{r}
+cereal_Bartlett <- cortest.bartlett(cereal_Matrix, n = nrow(cerealdata))
+cereal_Bartlett
+#Bartlett Test of Spehericity - We are getting the p-value of <.001, thus the null hypothesis is rejected (The null hypothesis is that the corelation matrix is an identity matrix i.e. there is no scope for dimentionality reduction.). Hence, dimensionality reduction is a possibility using PCA/FA
+```
+
+
+```{r}
+# Now we need to find how many factors are there in the data
+cereal_fa <- as.matrix(cerealdata[,2:26])
+eigen_data <- eigen(cor(cereal_fa))
+eigen_data
+cor(cereal_fa)
+library(nFactors)
+library(corrplot)
+corrplot(cor(cereal_fa))
+
+```
+```{r}
+cerealfactors <- fa.parallel(cereal_fa,fm="ml",fa="fa")
+ap <- parallel(subject=nrow(cereal_fa),var=ncol(cereal_fa),rep=100,cent=.05)
+nS1 <- nScree(x=eigen_data$values, aparallel=ap$eigen$qevpea)
+plotnScree(nS1)
+# With Scree plot and parallel analysis, we can assume to retain 4 factors
+
+```
+
+```{r}
+library(car)
+fa_model1<-factanal(cereal_fa,4, rotation="none")
+fa_model1$loadings
+```
+
+
+print(fa_model1$loadings, digits = 3, cutoff = 0.6, sort = TRUE)
+
+
+```{r}
+
+# Cummulative variable explained by the model is only 50%. Let us try rotating the factors. 
+# For analysis purpoer we are using "varimax", "promax" & "oblimin" methods
+
+#fa_quartimax<-factanal(cereal_fa, 4, rotation="quartimax")
+fa_verimax<-factanal(cereal_fa, 4, rotation="varimax")
+fa_promax<-factanal(cereal_fa, 4, rotation="promax")
+load<-fa_promax$loadings[,1:4]
+print(fa_promax$loadings, digits = 3, cutoff = 0.4, sort = TRUE)
+#load<-fa_quartimax$loadings[,1:2]
+#print(fa_quartimax$loadings, digits = 3, cutoff = 0.4, sort = TRUE)
+load<-fa_verimax$loadings[,1:4]
+print(fa_verimax$loadings, digits = 3, cutoff = 0.4, sort = TRUE)
+```
+
+
+```{r}
+load
+plot(load, type= "n")
+text(load, labels=names(cerealdata), cex = 0.7)
+```
+
+
+```{r}
+library(GPArotation)
+modelGPArotation<-fa(cereal_fa,nfactors = 4,fm="ml", rotate="oblimin")
+modelGPArotation$loadings
+print(modelGPArotation$loadings, digits = 3, cutoff = 0.4, sort = TRUE)
+
+```
+
+```{r}
+print(modelGPArotation$loadings, digits = 3, cutoff = 0.4, sort = TRUE)
+load<-modelGPArotation$loadings[,1:2]
+load
+```
+
+
+```{r}
+plot(load, type= "n")
+text(load, labels=names(cerealdata), cex = 0.7)
+```
+
+
+```{r}
+#Factor analysis with varimax rotation given good output
+
+#Creating the factors
+
+factor1 <- c(2,3,4,8,9,14,19,23,26)
+factor2 <- c(5,7,16,20)
+factor4 <- c(11,15)
+factor3 <- c(12,17,18,24,25)
+```
+
+
+```{r}
+####################
+# Grouping factors #
+####################
+
+colnames(cerealdata[,c(2,3,4,8,9,14,19,23,26)])
+colnames(cerealdata[,c(5,7,16,20)])
+colnames(cerealdata[,c(12,17,18,24,25)])
+colnames(cerealdata[,c(11,15)])
+
+
+cerealdata$factor1score <-apply(cerealdata[,factor1],1,mean)
+cerealdata$factor2score <-apply(cerealdata[,factor2],1,mean)
+cerealdata$factor3score <-apply(cerealdata[,factor3],1,mean)
+cerealdata$factor4score <-apply(cerealdata[,factor4],1,mean)
+```
+
+
+
+```{r}
+# The four Factorss can be grouped as "Health n wellness","Flavour", "Sentation" & "Kin"
+# Factor 1 Health n wellness comprises of Filling, Natural, Fibre, Satisfying, Energy, Health, Regular, Quality & Nutritious
+# Factor 2 Flavour comprises of Sweet, Salt, Calories & Sugar
+# Factor 3 Sensation comprises of Soggy, Plain, Crisp, Treat and Boring
+# Factor 4 Kin comprises of Kids and Family
+
+colnames(cerealdata)[27:30] <-c("Health n Wellness", "Flavour", "Sensation", "Kin")
+agg.fa.cereal<-aggregate(cerealdata[,27:30],  list(cerealdata[,1]), mean)
+format(agg.fa.cereal, digits = 2)
+```
+
+```{r}
+#Conclusion
+# Cerial Brands "AllBran", "CMuesli", "PMuesli", "Komplete" & "Sustain" is having high preferrenc with customers who are health and wellness consious - company can market these brands accordingly
+# Cerial Brands "CornFlakes", "NutriGrain", "RiceBubbles" "JustRigh" & "SpecialK" is primerily associated with Chindrens and Family
+#However, Factors related to Flavour and Senstion is sort of secondary wish for both Health and wellness and Kin grouped buyers - company should also focus on taste and flavour 
+
+```
+

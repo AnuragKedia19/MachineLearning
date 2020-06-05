@@ -1,0 +1,664 @@
+---
+title: "Group Assignment of Finance & Risk Analytics"
+author: "Saurav Suman,Anurag Kedia,Neha Tiwary,Divya Thomas,Peehu (Group 8)"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+always_allow_html: yes    
+---
+## Problem Statement -
+
+You are requested to create an India credit risk(default) model, using the data provided in the spreadsheet raw-data.xlsx, and validate it on validation_data.xlsx. Please use the logistic regression framework to develop the credit default model.
+
+1. Data Preparation and Data Cleaning
+2. EDA, Outlier Treatment - Univariate and Bivariate Analysis	
+3. Creating new Variables in Ration format to bring the scale of all companies on the same scale
+4. Dimension Reduction	
+5. Logistic Model development on train dataset	
+6. Evaluating model output against actual values of train dataset using the validation metrics	
+7. Applying the model on test dataset	
+8. Tweaking the model for better accuracy and use the final model to predict the final test data      values and shared the business insights inferred from the model
+
+## Objective
+According to the problem statement we have to create credit risk default model for prediction of defaultor.
+
+We are using the raw dataset to build the model and later validate the performance of the model using validation dataset. As mentioned in problem statement, we have used logistic regression model to analyse the dataset. 
+
+
+## Read the Train (Raw) dataset
+```{r}
+setwd("C:/Users/kumar/Desktop/Neha Study GL/Assignment/Group Assignment/Group Assignment 10")
+credit_train_data <- read.csv("raw-data.csv",na.strings = c(""," ","?",NA))
+
+dim(credit_train_data)
+```
+There are two dataset given in the problem. One is raw data and the other one is validation data. After setting the working directory we read the raw data and checked the dimension for the same. The raw data is having 3541 observations and 52 columns/variables.
+
+## Head n Tail of Dataset
+```{r}
+head(credit_train_data)
+tail(credit_train_data)
+```
+## Structure of the dataset
+```{r}
+str(credit_train_data)
+```
+
+
+## Rename the variables names properly
+```{r}
+#install.packages("janitor")
+library(janitor)
+credit_train_data <- credit_train_data %>% clean_names()
+```
+
+## Names of the Dataset
+```{r}
+names(credit_train_data)
+```
+
+## Check the proportion of target i.e. "default" variable
+```{r}
+round(prop.table(table(credit_train_data$default)),2)
+table(credit_train_data$default)
+```
+It is evident here that the default class is only 7% and Non - Default are of 93%
+
+## Check Missing Value
+```{r}
+sapply(credit_train_data, function(x){sum(is.na(x))})
+```
+It is observed that, there are several na or null values in the dataset for various features. 
+
+
+## Remove variables 
+```{r}
+
+credit_train_data <- credit_train_data[,-c(1,22)]
+
+```
+Here, we are removing the variable named "deposits_accepted_by_commercial_banks" from the dataset as it has no records.Also, we are removing the number column as it is the id column and of no use in the model prediction.
+
+## Summary of the dataset
+```{r}
+summary(credit_train_data)
+```
+
+## Missing Value Treatment
+```{r}
+
+credit_train_data_new <- data.frame(
+    sapply(
+        credit_train_data,
+        function(x) ifelse(is.na(x),
+            median(x, na.rm = TRUE),
+            x)))
+```
+As we have identified many na values present in the dataset, we are imputing na with median of respective column. 
+
+## Verification for NA Removal
+```{r}
+sapply(credit_train_data_new, function(x){sum(is.na(x))})
+
+```
+Cross checked if the NA values are removed from the dataset or not. As we can observe from the above code that all the NA values are removed with the median values and there are no NA present in the entire dataset.
+
+## Convert Number to factor 
+```{r}
+credit_train_data_new$default <- as.factor(credit_train_data_new$default)
+```
+The default variable are numerical so converting it to factor.
+
+## Exploratory Data Analysis 
+```{r}
+library(ggplot2)
+
+ggplot(data=credit_train_data_new, aes(default, fill=default)) + geom_bar(colour="Black")
+
+```
+From the above graph we can interpret that the count of default is very less in the dataset. it means Defaults is minority class. 
+It is scenarios of imbalance in dataset.
+
+## Box plot of each independent variable ( Univariate Analysis )
+```{r}
+for (i in 2:ncol(credit_train_data_new))
+{
+ boxplot(credit_train_data_new[,i],horizontal = TRUE, border = 'red',
+         xlab = "Value",main = colnames(credit_train_data_new[i]))
+    
+}
+```
+we can clearly see that in boxplot, many outliers are present in several column. 
+
+## Plot the histogram with few independent and target variable - (Bivariate Analysis)
+
+### Default and Total Assets
+```{r}
+ggplot(data=credit_train_data_new, aes(x=default, y=total_assets, fill=default)) +
+    geom_bar(stat="identity")
+```
+Histogram plot is done between the target variable "Default" and total assests. From this graph it is visible that defaulters have very few assests.
+
+### Default and Total Capital
+```{r}
+ggplot(data=credit_train_data_new, aes(x=default, y=total_capital , fill=default)) +
+    geom_bar(stat="identity")
+```
+Histogram plot is done between the target variable "Default" and total capital. From this graph, it is visible that defaulters have less capital with them.
+
+### Default and Profit After Tax
+```{r}
+ggplot(data=credit_train_data_new, aes(x=default, y=profit_after_tax, fill=default)) +
+    geom_bar(stat="identity")
+```
+Histogram plot is done between the target variable "Default" and profit after tax. From this graph, it is visible that defaulters have less profit after tax.
+
+### Default and Change in Stock
+```{r}
+ggplot(data=credit_train_data_new, aes(x=default, y=change_in_stock, fill=default)) +
+    geom_bar(stat="identity")
+```
+When the histogram plot was done between default and change in stock we came to know that non defaulters have negative change in stock whereas defaulters donot have negative change in stock.
+
+### Default and Net Working Capital
+```{r}
+ggplot(data=credit_train_data_new, aes(x=default, y=net_working_capital, fill=default)) +
+    geom_bar(stat="identity")
+```
+Default class is having comparatively less net working capital 
+
+## Outlier Treatment using Percentile Capping
+```{r}
+percap <- function(x){
+  for (i in which(sapply(x, is.numeric))) {
+  quantiles <- quantile( x[,i], c(.1, .99 ), na.rm =TRUE)
+  x[,i] = ifelse(x[,i] < quantiles[1] , quantiles[1], x[,i])
+  x[,i] = ifelse(x[,i] > quantiles[2] , quantiles[2], x[,i])}
+  x}
+
+# Replacing extreme values with percentiles
+credit_train_data_treated = percap(credit_train_data_new)
+  
+# Checking Percentile values of 2nd variable
+quantile(credit_train_data_treated[,2], c(0.25,0.5,.95, .99, 1), na.rm = TRUE)
+
+```
+In the outlier treatment of the datasets, observations lesser than the 1st percentile are replaced 
+with value of the 1st percentile and the observations more than the 99th percentile are replaced with the value of the 99th percentile. We are doing this treatment for each column in the dataset.
+By this way we are not removing the outlier and the treatment is also done.  
+
+## Build the correlation plot of the train dataset
+```{r}
+library(corrplot)
+
+credit_train_data_cor <- as.matrix(credit_train_data_treated[,2:50])
+
+corplot <- corrplot(cor(credit_train_data_cor),type = "lower")
+
+
+```
+
+
+## Create New Variables
+```{r}
+
+attach(credit_train_data_treated)
+
+#The profitability ratio is derived by dividing Profit after tax by Sales
+credit_train_data_treated$profitibility <- profit_after_tax/sales
+
+# The Price per share is made by multiplying eps with pe on bse
+credit_train_data_treated$price_per_share <- eps * pe_on_bse
+
+#The liquidity ratio is derived by dividing Net Working Capital by Total Assets
+credit_train_data_treated$networkcapital_by_totalassets <- net_working_capital/total_assets
+  
+```
+
+We are creating the new variables here . 
+1) Ratio for Profitability, 
+2) Ratio for Liquidity
+3) Ratio for Leverage. 
+The formulas for each we have given in the code. We have calculated Profitability, Liquidity and Price per share. The leverage ration is already given in the dataset
+
+## Creation of Other ratios variables 
+```{r}
+
+credit_train_data_treated$networth_by_totalassets <- net_worth/total_assets
+credit_train_data_treated$totalincome_by_totalassets <- total_income/total_assets
+credit_train_data_treated$totalexpense_by_totalassets <- total_expenses/total_assets
+credit_train_data_treated$profitaftertax_by_totalassets <- profit_after_tax/total_assets
+credit_train_data_treated$sales_by_totalassets <- sales/total_assets
+credit_train_data_treated$sales_totalassets <- sales/total_assets
+credit_train_data_treated$currentlibprov_by_totalassets <- current_liabilities_provisions/total_assets
+credit_train_data_treated$capitalemply_by_totalassets <- capital_employed/total_assets
+credit_train_data_treated$netfixedassets_by_totalassets <- net_fixed_assets/total_assets
+credit_train_data_treated$investement_totalassets <- investments/total_assets
+
+```
+We have created some more variables by dividing multiple variables by Total assets
+
+## Structure of the target variable
+```{r}
+str(credit_train_data_treated$default)
+```
+This variable has 2 levels. The value 1 means Default and value 0 means Non-Default.
+
+## SMOTE to Balance the dataset
+```{r}
+#install.packages("caTools")
+library(caTools)
+library(DMwR)
+
+
+credit_train_data_smote <- SMOTE(default ~ . , data=credit_train_data_treated)
+
+prop.table(table(credit_train_data_smote$default))
+
+
+```
+As the original dataset was highly imbalanced and has the ratio of 93:7 between both classes. So we are performing smote analysis to remove the class imbalance.
+
+## Rename the dataset
+```{r}
+credit_train_data_final <- credit_train_data_smote
+```
+
+## Building Logistic Model with Train data
+```{r}
+
+logit_model <- glm (default ~ ., data = credit_train_data_final, family = binomial)
+
+summary(logit_model)
+
+```
+The Logistic regression model is used for this dataset. Initially, all the variables are used as the predictors with the Default variable as the response variable.
+
+The Logistic model results shows that few variables are important and contribute more towards the model.
+
+It is observerd that many parameters having P value more than 0.05, which means these paramters are not significantly impacting the depandant variable.
+
+## Dimension Reduction
+Filtering the variables based on the significance in the above model and build LR model again with those variables. 
+
+```{r}
+
+
+logit_model_new <- glm ( default ~ total_expenses+pbt+cash_profit+pat_as_of_net_worth+income_from_financial_services+current_liabilities_provisions+deferred_tax_liability+cumulative_retained_profits+total_term_liabilities_tangible_net_worth+contingent_liabilities_net_worth+contingent_liabilities+debt_to_equity_ratio_times+creditors_turnover+debtors_turnover+equity_face_value+pe_on_bse+profitibility+networkcapital_by_totalassets+networth_by_totalassets+profitaftertax_by_totalassets+capitalemply_by_totalassets+netfixedassets_by_totalassets, data = credit_train_data_final, family = binomial)
+
+
+summary(logit_model_new)
+
+
+```
+Here we are filtering the variables based on the significance in the above model and building LR model again with those variables
+
+## Build the confusion matrix and Predict on train data using LR model
+```{r}
+## Predict using the LR model
+
+credit_train_data_final$predict.response <- predict(logit_model_new,credit_train_data_final,type="response")
+
+
+## Creating the confusion matrix
+
+tabtrain=with(credit_train_data_final,table(default,predict.response > 0.4))
+
+TN_train = tabtrain[1,1]
+TP_train = tabtrain[2,2]
+FN_train = tabtrain[2,1]
+FP_train = tabtrain[1,2]
+
+# Accuracy
+train_acc = (TN_train+TP_train)/(TN_train+TP_train+FN_train+FP_train)
+train_acc
+
+#Sensivity
+train_sens = TP_train/(TP_train+FN_train)
+train_sens
+
+#Specificity
+train_spec = TN_train/(TN_train+FP_train)
+train_spec
+```
+
+#### AUC-ROC Curve for Train data
+```{r}
+library(pROC)
+
+train_roc_obj = roc(credit_train_data_final$default, credit_train_data_final$predict.response)
+plot(train_roc_obj, print.auc = T)
+
+
+```
+
+
+### Comparison of all the performace measure of Logistic Regression Model on Train data  
+```{r}
+
+results_train = data.frame(train_acc, train_sens, train_spec , as.numeric(train_roc_obj$auc))
+names(results_train) = c("ACCURACY", "SENSITIVITY", "SPECIFICITY" , "AUC-ROC" )
+
+row.names(results_train) = c('LR_Model_Train')
+                      
+results_train
+
+```
+
+After building the confusion matrix the accuracy comes out to be 90% and Sensitivity comes as 93% for the train dataset. 
+
+
+## Preparing the validation dataset for testing with the model created above. The Validation dataset also will go through all the data preprocessing steps.
+## Read the Validation Data
+```{r}
+credit_validation_data <- read.csv("validation_data.csv",na.strings = c(""," ","?",NA))
+
+dim(credit_validation_data)
+```
+The validation data has 715 observations and 52 columns.
+
+## Head and tail dataset
+```{r}
+head(credit_validation_data)
+tail(credit_validation_data)
+```
+## Structure of the dataset
+```{r}
+str(credit_validation_data)
+```
+As we can see that number column is the id column and default..1 is numeric type. We have to change the type of default column to factor. All these process we will be doing below.
+
+```{r}
+
+credit_validation_data <- credit_validation_data %>% clean_names()
+
+```
+
+## Names
+```{r}
+names(credit_validation_data)
+```
+## Proportion of default column
+```{r}
+round(prop.table(table(credit_validation_data$default_1)),2)
+table(credit_validation_data$default_1)
+```
+As we can see that the dataset is highly imbalanced and has a ratio of 92:8 where 92 is for non defaulters and 8 is for defaulters
+
+## Checking for NA Value/ Missing Value
+```{r}
+sapply(credit_validation_data, function(x){sum(is.na(x))})
+```
+There are many NA values in the validation dataset
+
+```{r}
+
+credit_validation_data <- credit_validation_data[,-c(1,22)]
+
+```
+Variable named "deposits_accepted_by_commercial_banks" is removed from the dataset as it has no records. Also "num" is removed as it is not required.
+
+## Summary of Validation Data
+```{r}
+summary(credit_validation_data)
+```
+
+## Missing Value Treatment
+```{r}
+
+credit_validation_data_new <- data.frame(
+    sapply(
+        credit_validation_data,
+        function(x) ifelse(is.na(x),
+            median(x, na.rm = TRUE),
+            x)))
+```
+We are replacing the NA values here with the median value of that column
+
+## Summary of new data
+```{r}
+summary(credit_validation_data_new)
+```
+
+## Rename the target variable given "default-1" as "default" and convert to factor
+```{r}
+
+names(credit_validation_data_new)[names(credit_validation_data_new) == "default_1"] <- "default"
+credit_validation_data_new$default <- as.factor(credit_validation_data_new$default)
+```
+
+## Exploratory Data Analysis of Validation Data
+
+## Plot the target class "default" (Univariate Analysis)
+```{r}
+library(ggplot2)
+
+ggplot(data=credit_validation_data_new, aes(default, fill=default)) + geom_bar(colour="Black")
+
+```
+## Boxplot of All the Variables
+```{r}
+for (i in 2:ncol(credit_validation_data_new))
+{
+ boxplot(credit_validation_data_new[,i],horizontal = TRUE, border = 'blue',
+         xlab = "Value",main = colnames(credit_validation_data_new[i]))
+    
+}
+```
+
+
+## Outlier Treatment using Percentile Capping
+```{r}
+pcap <- function(x){
+  for (i in which(sapply(x, is.numeric))) {
+  quantiles <- quantile( x[,i], c(.1, .99 ), na.rm =TRUE)
+  x[,i] = ifelse(x[,i] < quantiles[1] , quantiles[1], x[,i])
+  x[,i] = ifelse(x[,i] > quantiles[2] , quantiles[2], x[,i])}
+  x}
+
+# Replacing extreme values with percentiles
+credit_validation_data_treated = pcap(credit_validation_data_new)
+  
+# Checking Percentile values of 7th variable
+quantile(credit_validation_data_treated[,2], c(0.25,0.5,.95, .99, 1), na.rm = TRUE)
+
+
+```
+
+
+
+## Create New Variables
+```{r}
+#New variables are created. One ratio for Profitability, Liquidity and Leverage.
+
+detach(credit_train_data_treated)
+attach(credit_validation_data_treated)
+
+
+#The profitability ratio is derived by dividing Profit after tax by Sales
+credit_validation_data_treated$profitibility <- profit_after_tax/sales
+
+# The Price per share is made by multiplying eps with pe on bse
+credit_validation_data_treated$price_per_share <- eps * pe_on_bse
+
+#The liquidity ratio is derived by dividing Net Working Capital by Total Assets
+credit_validation_data_treated$networkcapital_by_totalassets <- net_working_capital/total_assets
+
+#The leverage ratio is already given in the dataset
+
+
+```
+
+## Creation of Other ratios variables
+```{r}
+
+credit_validation_data_treated$networth_by_totalassets <- net_worth/total_assets
+credit_validation_data_treated$totalincome_by_totalassets <- total_income/total_assets
+credit_validation_data_treated$totalexpense_by_totalassets <- total_expenses/total_assets
+credit_validation_data_treated$profitaftertax_by_totalassets <- profit_after_tax/total_assets
+credit_validation_data_treated$sales_by_totalassets <- sales/total_assets
+credit_validation_data_treated$sales_totalassets <- sales/total_assets
+credit_validation_data_treated$currentlibprov_by_totalassets <- current_liabilities_provisions/total_assets
+credit_validation_data_treated$capitalemply_by_totalassets <- capital_employed/total_assets
+credit_validation_data_treated$netfixedassets_by_totalassets <- net_fixed_assets/total_assets
+credit_validation_data_treated$investement_totalassets <- investments/total_assets
+
+```
+
+## Structure of the default column
+```{r}
+str(credit_validation_data_treated$default)
+```
+
+```{r}
+credit_validation_data_final <- credit_validation_data_treated 
+```
+
+## Build the confusion matrix and Predict on validation data using the built Logistic Regression model
+```{r}
+## Predict using the LR model
+
+credit_validation_data_final$predict.response<-predict(logit_model_new,newdata=credit_validation_data_final,type="response")
+
+
+## Creating the confusion matrix
+
+tabtest=with(credit_validation_data_final,table(default,predict.response > 0.5))
+
+TN_test = tabtest[1,1]
+TP_test = tabtest[2,2]
+FN_test = tabtest[2,1]
+FP_test = tabtest[1,2]
+
+# Accuracy
+test_acc = (TN_test+TP_test)/(TN_test+TP_test+FN_test+FP_test)
+test_acc
+
+#Sensivity
+test_sens = TP_test/(TP_test+FN_test)
+test_sens
+
+#Specificity
+test_spec = TN_test/(TN_test+FP_test)
+test_spec
+```
+
+## Tune the cut off the logistic model to get a better result.
+```{r}
+## Creating the confusion matrix
+
+tabtest=with(credit_validation_data_final,table(default,predict.response > 0.4))
+
+TN_test = tabtest[1,1]
+TP_test = tabtest[2,2]
+FN_test = tabtest[2,1]
+FP_test = tabtest[1,2]
+
+# Accuracy
+test_acc = (TN_test+TP_test)/(TN_test+TP_test+FN_test+FP_test)
+test_acc
+
+#Sensivity
+test_sens = TP_test/(TP_test+FN_test)
+test_sens
+
+#Specificity
+test_spec = TN_test/(TN_test+FP_test)
+test_spec
+```
+
+## AUC-ROC Curve for Validation data
+```{r}
+
+test_roc_obj = roc(credit_validation_data_final$default, credit_validation_data_final$predict.response)
+plot(test_roc_obj, print.auc = T)
+
+
+```
+The AUC-ROC curve value is 95.9 % for the validation dataset.
+
+### Comparison of all the performace measure of Logistic Model on validation data  
+```{r}
+
+results_test = data.frame(test_acc, test_sens, test_spec ,as.numeric(test_roc_obj$auc) )
+names(results_test) = c("ACCURACY", "SENSITIVITY", "SPECIFICITY" , "AUC-ROC")
+
+row.names(results_test) = "LR_Model_Validation"
+
+results_test
+
+```
+
+After testing the model on Validation data the accuracy comes out to be 85% and Sensitivity comes as 94%.
+
+
+
+### Comparing the performance of Logistic Regression model on both train and validation dataset
+```{r}
+
+df_fin =rbind(results_train, results_test)
+row.names(df_fin) = c('Logistic_Train', 'Logistic_Validation')
+
+#install.packages("kableExtra")
+library(kableExtra)
+print("Model Performance Comparison Metrics ")
+kable(round(df_fin,2)) %>%
+    kable_styling(c("striped","bordered"))
+
+```
+
+### Comparing the LR Model performance with respect to AUC-ROC Curve
+```{r}
+plot(train_roc_obj, main = "ROC curves for LR Model for both train and validation dataset", col='blue')
+plot(test_roc_obj,add=TRUE, col='red')
+legend('bottom', c("Logistic Train", "Logistic Validation"), fill = c('blue','red'), bty='n')
+```
+
+
+## CONCLUSION
+
+
+The default value for threshold on which we generally get a Confusion Matrix is 0.50. We have tested the model based on changing the threshold value from 0.4 to 0.6. A change in the threshold value will result in change of predicted values of default, hence the new confusion matrix will be different and moreover TPR and FPR values will also change.Looking at the AUC-ROC plot, we observe that to achieve a good True Positive Rate, False Positive Rate will also have to be raised. Therefore a trade-off has to be done between them.
+
+Accuracy is a very useful metric when all the classes are equally important. But this might not be the case in this example business can probably tolerate FPs but not the FNs. Current example: DHFL Finance became a defaulter for Yes Bank.
+
+Coming to the business part, the bank efficiently is balancing between reducing defaulters(increasing TPR) and reducing wrong classification of good customers as probable defaulters(lowering FPR). Therefore the organisation in this case can’t just rely on the accuracy of the model. A detailed analysis of the confusion matrix and connecting it with the business problem is required before jumping to any conclusions and making business decisions. Hence, after finalizing the TPR and FPR values the corresponding threshold value can easily be traced back and that will be used for the final prediction of the default companies.
+
+ 
+The accuracy on the validation data is 86%. We are more intrested in predicting credit risk defaulter which can be inferenced from sensitivity value i.e. 93% that is we the model is able to explain 93% of the true positive with respect to true positive and false negative.
+
+The important variables which are the most significant in the model building based on the lowest P values  are as below -
+
+
+1.total_expenses
+
+2.pbt
+
+3.cash_profit
+
+4.pat_as_of_net_worth
+
+5.income_from_financial_services 
+
+6.cumulative_retained_profits
+
+7.total_term_liabilities_tangible_net_worth
+
+8.debt_to_equity_ratio_times
+
+9.creditors_turnover
+
+10.debtors_turnover
+
+11.pe_on_bse
+
+12.networkcapital_by_totalassets
+
+13.networth_by_totalassets
+
+14.netfixedassets_by_totalassets
+
+
+
+
